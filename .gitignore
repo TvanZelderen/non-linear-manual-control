@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# MATLAB / Simulink working files
+*.asv
+*.m~
+*.autosave
+*.slxc
+*.slx.r*
+slprj/
+sccprj/
+codegen/
+*.log
+
+# Locally built MEX (regenerate with matlab/setup/build_mex.m)
+*.mexmaca64
+*.mexmaci64
+*.mexa64
+*.mexw64.bak
