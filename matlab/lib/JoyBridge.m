@@ -52,7 +52,7 @@ classdef JoyBridge < handle
             ip.addParameter('VendorID',  [], @(x)isempty(x) || isscalar(x));
             ip.addParameter('ProductID', [], @(x)isempty(x) || isscalar(x));
             ip.addParameter('Launch', true, @(x)islogical(x) || ismember(x,[0 1]));
-            ip.addParameter('Rate', 100, @(x)isscalar(x) && x > 0);
+            ip.addParameter('Rate', 60, @(x)isscalar(x) && x > 0);  % ~= model block rate
             ip.addParameter('BinPath', '', @(x)ischar(x) || isstring(x));
             ip.parse(varargin{:});
             a = ip.Results;
@@ -81,50 +81,63 @@ classdef JoyBridge < handle
         end
 
         function tf = poll(obj)
-        %POLL  Drain the socket, keep the newest data frame. True if updated.
+        %POLL  Drain the socket, keep only the newest data frame. True if updated.
             tf = false;
-            for k = 1:200   % bounded drain
+            lastD = '';
+            for k = 1:400   % bounded drain
                 line = obj.recvLine();
                 if isempty(line), break; end
-                parts = strsplit(strtrim(line), ',');
-                if isempty(parts), continue; end
-                switch parts{1}
-                    case 'M'
-                        % M,name,vid,pid,nAxes,u0..u(n-1),nButtons
-                        obj.Name      = parts{2};
-                        obj.VendorID  = sscanf(parts{3}, '0x%x');
-                        obj.ProductID = sscanf(parts{4}, '0x%x');
-                        na = str2double(parts{5});
-                        obj.NumAxes    = na;
-                        obj.AxisUsages = str2double(parts(6:5+na));
-                        obj.NumButtons = str2double(parts{6+na});
-                        obj.gotMeta    = true;
-                    case 'D'
-                        % D,seq,nAxes,a0..,nButtons,b0..
-                        na = str2double(parts{3});
-                        ax = str2double(parts(4:3+na));
-                        nb = str2double(parts{4+na});
-                        bt = str2double(parts(5+na:4+na+nb));
-                        obj.axesRaw    = ax;
-                        obj.buttonsRaw = logical(bt);
-                        obj.NumAxes    = na;
-                        obj.NumButtons = nb;
-                        obj.gotFrame   = true;
-                        tf = true;
+                switch line(1)
+                    case 'D', lastD = line;                % keep newest only
+                    case 'M', obj.parseMeta(line);         % rare (~1 Hz)
                 end
             end
+            if isempty(lastD), return; end
+
+            % D,seq,nAxes,a0..a(n-1),nButtons,b0..b(m-1)
+            v = sscanf(lastD(3:end), '%f,');
+            if numel(v) < 3, return; end
+            na = v(2);
+            if numel(v) < 3 + na, return; end
+            obj.axesRaw = v(3:2+na).';
+            nb = v(3+na);
+            b0 = 4 + na;
+            if nb > 0 && numel(v) >= b0+nb-1
+                obj.buttonsRaw = logical(v(b0:b0+nb-1)).';
+            else
+                obj.buttonsRaw = false(1, max(nb, 0));
+            end
+            obj.NumAxes    = na;
+            obj.NumButtons = nb;
+            obj.gotFrame   = true;
+            tf = true;
+        end
+
+        function parseMeta(obj, line)
+        %PARSEMETA  M,name,vid,pid,nAxes,u0..u(n-1),nButtons
+            parts = strsplit(strtrim(line), ',');
+            if numel(parts) < 6, return; end
+            na = str2double(parts{5});
+            if numel(parts) < 6 + na, return; end
+            obj.Name       = parts{2};
+            obj.VendorID   = sscanf(parts{3}, '0x%x');
+            obj.ProductID  = sscanf(parts{4}, '0x%x');
+            obj.NumAxes    = na;
+            obj.AxisUsages = str2double(parts(6:5+na));
+            obj.NumButtons = str2double(parts{6+na});
+            obj.gotMeta    = true;
         end
 
         function v = axis(obj, idx)
-        %AXIS  Axis vector (or one axis) in [0,1], raw / uncalibrated.
-            obj.poll();
+        %AXIS  Last-frame axis vector (or one axis) in [0,1], raw/uncalibrated.
+        %   Call poll() first to refresh. (No implicit poll here so a caller
+        %   in a simulation loop pays exactly one socket read per step.)
             v = obj.axesRaw;
             if nargin > 1, v = v(idx); end
         end
 
         function b = button(obj, idx)
-        %BUTTON  Logical button vector (or one button).
-            obj.poll();
+        %BUTTON  Last-frame logical button vector (or one button). See axis().
             b = obj.buttonsRaw;
             if nargin > 1, b = b(idx); end
         end
@@ -176,7 +189,7 @@ classdef JoyBridge < handle
                 s = DatagramSocket([]);                       % unbound
                 s.setReuseAddress(true);
                 s.bind(InetSocketAddress('127.0.0.1', obj.Port));
-                s.setSoTimeout(int32(15));                    % ms; long enough to catch a frame
+                s.setSoTimeout(int32(1));                     % ms; keep per-step cost tiny
             catch err
                 error('JoyBridge:bind', ...
                     ['Cannot bind UDP port %d (%s). A stale helper may be running: ' ...
@@ -193,8 +206,9 @@ classdef JoyBridge < handle
                 obj.pkt.setLength(4096);   % reset: receive() shrinks it to the last datagram
                 obj.sock.receive(obj.pkt);
                 n = obj.pkt.getLength();
-                raw = obj.pkt.getData();               % java int8[]
-                line = char(mod(double(raw(1:n)), 256))';
+                % build the string on the Java side - one JNI hop, no
+                % per-byte MATLAB conversion (this is the per-step hot path)
+                line = char(java.lang.String(obj.pkt.getData(), int32(0), int32(n)));
             catch
                 % SocketTimeoutException -> no more packets right now
             end
