@@ -20,3 +20,7 @@ codegen/
 *.mexmaci64
 *.mexa64
 *.mexw64.bak
+
+# Locally built joystick bridge (regenerate with matlab/lib/joybridge/build.sh)
+/matlab/lib/joybridge/joybridge
+*.dSYM/
