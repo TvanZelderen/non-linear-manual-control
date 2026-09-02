@@ -21,7 +21,7 @@ function u = joybridge_step(~)
 %   See also JOYBRIDGE_OPEN, JOYBRIDGE_CLOSE, JOYBRIDGE, JOYSTICK_PARAMS.
 
     % channel = CFG.sign .* CFG.travel .* jp.apply(axes)   [roll pitch yaw thr]
-    CFG.sign   = [ +1, -1, +1, +1 ];   % roll, pitch, yaw, throttle
+    CFG.sign   = [ -1, -1, +1, +1 ];   % roll, pitch, yaw, throttle  (bench-checked)
     CFG.travel = [ 0.65, 0.35, 0.38, 1 ];
 
     global JOYBRIDGE JOYBRIDGE_MAP   %#ok<GVMIS>

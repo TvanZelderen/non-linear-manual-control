@@ -15,7 +15,7 @@ Session state: `~/.claude/handovers/ae4311-andi-indi-assignment/`
 | `docs/` | The brief + reference PDFs (Embedded MATLAB manuals, Stoica 1977 whiteness test). |
 | `model/` | `Citation simulation model 2026_v2.zip` (pristine) and the extracted `Citation simulation model 2026/` — **the live model; we edit `Citation_FlightGear_v2.mdl` in place here.** |
 | `reference/` | `demo_Lecture1_NDI.m`, `demo_Lecture2_NDI_MIMO.m`, `LieFx.m` — lecture teaching examples, left untouched. The MIMO demo is the template for the 3×3 `b⁻¹(x)` in step 5. |
-| `matlab/` | Our code. `setup/` (build_mex, check_env, joystick_calibrate), `params/` (aircraft data, joystick_params), `lib/` (`JoyBridge.m` + `joybridge/` Swift HID helper), `analysis/`. `project_startup.m` puts everything on the path. |
+| `matlab/` | Our code. `setup/` (build_mex, check_env, joystick_calibrate, patch_model_joystick, add_cockpit_view), `params/` (aircraft data, joystick_params), `lib/` (`JoyBridge.m`, `joybridge_open/step/close.m`, `joybridge/` Swift HID helper), `analysis/`. `project_startup.m` puts everything on the path. |
 | `scripts/` | `runfg.sh` — optional FlightGear visualiser (model runs headless without it). |
 | `results/` | Logged sim data and report figures (later steps). |
 | `archive/` | Superseded v1 model zip (broken trim-file pointer — do not use). |
@@ -46,11 +46,23 @@ Then, in the model:
 **Joystick on macOS.** Simulink 3D Animation (the model's `Joystick Input` block) is
 not supported on Apple Silicon. We read the sidestick through `matlab/lib/joybridge/`
 instead — a small Swift IOKit-HID helper streaming to MATLAB over UDP, wrapped by
-`JoyBridge.m`. Calibrate with `joystick_calibrate` (writes
-`matlab/params/joystick_cal.mat`); `joystick_params` returns the mapping. Wiring it
-into the `Pilot` subsystem is S2. Details: `matlab/lib/joybridge/README.md`.
+`JoyBridge.m`. One-time: `sh matlab/lib/joybridge/build.sh`, then `joystick_calibrate`
+(writes `matlab/params/joystick_cal.mat`). Wire it into the model with
+`patch_model_joystick` — this replaces the dead `Joystick Input` block with an
+Interpreted MATLAB Function reading the bridge, and adds `joybridge_open`/`_close` to
+the model Start/StopFcn so the bridge opens once per run. Details:
+`matlab/lib/joybridge/README.md`.
 If there is no joystick: set the `Pilot` ManualSwitch to *Virtual Joystick*, or comment
 the Joystick block with **Ctrl+Shift+U**.
+
+**Visualisation on macOS.** No Simulink 3D Animation needed — it was only ever the
+joystick block. Two options, both toolbox-installed:
+- `add_cockpit_view` adds a **Cockpit View** block (Aerospace Blockset *MATLAB
+  Animation*) — a live 3-D aircraft in a MATLAB figure, no external app.
+- **FlightGear** out-the-window: `brew install --cask flightgear`, then
+  `./scripts/runfg.sh` (start it, wait for the runway, then run the sim). The model's
+  `FlightGear Visualisation` block (Aerospace Blockset `net_fdm`, udp 5502) drives it.
+- The `FlightGear Visualisation` subsystem also carries scopes for p/q/r, φ/θ/ψ, h.
 
 ## The eight steps
 
