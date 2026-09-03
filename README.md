@@ -15,9 +15,9 @@ Session state: `~/.claude/handovers/ae4311-andi-indi-assignment/`
 | `docs/` | The brief + reference PDFs (Embedded MATLAB manuals, Stoica 1977 whiteness test). |
 | `model/` | `Citation simulation model 2026_v2.zip` (pristine) and the extracted `Citation simulation model 2026/` — **the live model; we edit `Citation_FlightGear_v2.mdl` in place here.** |
 | `reference/` | `demo_Lecture1_NDI.m`, `demo_Lecture2_NDI_MIMO.m`, `LieFx.m` — lecture teaching examples, left untouched. The MIMO demo is the template for the 3×3 `b⁻¹(x)` in step 5. |
-| `matlab/` | Our code. `setup/` (build_mex, check_env, joystick_calibrate, patch_model_joystick, add_cockpit_view), `params/` (aircraft data, joystick_params), `lib/` (`JoyBridge.m`, `joybridge_open/step/close.m`, `joybridge/` Swift HID helper), `analysis/`. `project_startup.m` puts everything on the path. |
+| `matlab/` | Our code. `setup/` (build_mex, check_env, joystick_calibrate, patch_model_joystick, add_cockpit_view, **patch_model_failure**, **find_button**), `params/` (aircraft data, joystick_params, **failure_params**), `lib/` (`JoyBridge.m`, `joybridge_open/step/close.m`, **`failure_open/step.m`**, `joybridge/` Swift HID helper), `run/` (**run_experiment**, **validation_matrix**), `test/` (**test_failure**), `analysis/`. `project_startup.m` puts everything on the path. |
 | `scripts/` | `runfg.sh` — optional FlightGear visualiser (model runs headless without it). |
-| `results/` | Logged sim data and report figures (later steps). |
+| `results/` | Logged sim data and report figures. `run_experiment` writes `results/<timestamp>/`. |
 | `archive/` | Superseded v1 model zip (broken trim-file pointer — do not use). |
 
 ## Getting started (S1 — get the model running on macOS)
@@ -63,6 +63,45 @@ joystick block. Two options, both toolbox-installed:
   `./scripts/runfg.sh` (start it, wait for the runway, then run the sim). The model's
   `FlightGear Visualisation` block (Aerospace Blockset `net_fdm`, udp 5502) drives it.
 - The `FlightGear Visualisation` subsystem also carries scopes for p/q/r, φ/θ/ψ, h.
+
+## S2 — aileron hardover failure
+
+Brief eq. (1.4): after the servo lag and saturation, `δa,actual = 0.5·δa,cmd − 0.28 rad`.
+Spliced into `Cessna Citation 500 / Actuators` on the line `da limits/1 → Mux/2` by an
+Interpreted MATLAB Function (`failure_step`) — the node `da limits/1` stays the clean
+pre-failure signal that step 3 (RLS) taps. `armed` is logged to `fail_armed`.
+Full build plan: <https://claude.ai/code/artifact/1c2efd17-9d59-4fdb-b68a-659a8e98e687>
+
+```matlab
+patch_model_joystick        % run FIRST (StartFcn order)
+patch_model_failure         % splice the failure; idempotent, writes .prefailure.bak
+                            %   patch_model_failure([], '0.02') if Ctrl+D rejects the -1 rate
+
+test_failure                % pure-function checks (safe under -batch)
+```
+
+Configure per run with a base-workspace `FAIL` struct (read once at StartFcn):
+
+| `FAIL` field | default | meaning |
+|---|---|---|
+| `mode` | `'auto'` | `'off'` never · `'on'` from t=0 · `'auto'` schedule + button |
+| `t_fail` | `Inf` | scheduled jam time [s] (auto mode); one-way |
+| `button` | `2` | sidestick button that jams the aileron **while held** (momentary) — for messing around, not the real workflow. Resolve the real index with `find_button`. |
+| `gain` / `offset` | `0.5` / `-0.28` | from `citation_params.p.fail` |
+| `verbose` | `true` | print the config line at StartFcn |
+
+`failure_step` is stateless — the arm decision (`t ≥ t_fail` OR button held) is
+recomputed every step. Watch the logged `fail_armed` signal for the event, not the
+console (`fprintf` from the sim context does not reliably surface).
+
+```matlab
+FAIL = struct('mode','auto','t_fail',20);   % jam 20 s in
+% ... open the model, initcit, Run (desktop) ...
+
+R = run_experiment(validation_matrix('t_fail',20,'tstop',40));   % batch, desktop
+```
+
+**Desktop only** for anything that runs the model — `sim()` / `-batch` segfault this model.
 
 ## The eight steps
 

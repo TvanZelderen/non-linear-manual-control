@@ -1,0 +1,5 @@
+run_experiment  03-Sep-2026 19:31:01
+model: Citation_FlightGear_v2
+
+pi_nominal      stopped   t_stop=40    input=asis      mode=off   t_fail=Inf    -> tout,yout,fail_armed
+pi_fail         stopped   t_stop=40    input=asis      mode=auto  t_fail=20     -> tout,yout,fail_armed
